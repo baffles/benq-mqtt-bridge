@@ -11,6 +11,7 @@
 
 #include "logger.hpp"
 #include "projector.hpp"
+#include "power_state.hpp"
 
 using std::bind;
 using namespace std::placeholders;
@@ -25,9 +26,18 @@ BenQProjector projector(
 	Serial, Serial1,
 	//TODO: configurability for these next values?
 	// poll every second
-	3,
+	3
 	// block cycling the projector absurdly often, so force an on time of 10 mins, off time of 5 mins
-	600, 300
+	// 600, 300
+);
+
+PowerState projectorPower(
+	logger, projector,
+	10 * 60, // stay on for at least 10 minutes
+	6 * 60 * 60, // power off after 6 hours by default
+	5 * 60, // stay off for at least 5 minutes
+	2 * 60, // 2 minute grace period on power off
+	2 * 60 * 60 // (unless projector has been on for 2 hours already)
 );
 
 
@@ -36,7 +46,7 @@ BenQProjector projector(
 
 #include "mqtt.hpp"
 MqttSupport mqtt(
-	logger, projector,
+	logger, projector, projectorPower,
 	MQTT_STATUS_INTERVAL,
 	CLIENT_NAME,
 	MQTT_SERVER, MQTT_SERVER_PORT,
@@ -55,7 +65,7 @@ MqttSupport mqtt(
 
 #include "http.hpp"
 HttpSupport http(
-	logger, projector,
+	logger, projector, projectorPower,
 	HTTP_PORT,
 	#ifdef ENABLE_HTTP_OTA_UPDATE
 		true
@@ -112,6 +122,7 @@ void setup() {
 
 	// projector communication is ready to go
 	projector.begin();
+	projectorPower.begin();
 
 	#ifdef ENABLE_HTTP
 	http.setup();
@@ -132,6 +143,7 @@ void setup() {
 
 void loop() {
 	projector.loop();
+	projectorPower.loop();
 
 	#ifdef ENABLE_HTTP
 	http.loop();
