@@ -6,14 +6,13 @@
 
 using std::stringstream;
 
-BenQProjector::BenQProjector(Logger &logger, HardwareSerial &in, HardwareSerial &out, int pollIntervalSecs, int minOnSecs, int minOffSecs) :
+BenQProjector::BenQProjector(Logger &logger, HardwareSerial &in, HardwareSerial &out, int pollIntervalSecs) :
 	logger(logger),
 	in(in), out(out), nextSend(0),
 	pollInterval(pollIntervalSecs * 1000), nextUpdate(0),
 	// don't queue more polling messages if the queue is larger than will be clared out during one
 	// interval (i.e., polling every 1000ms and sending every 100, cap the queue at 10 messages)
 	maxQueueSizeForPoll(pollInterval / PROJECTOR_SEND_INTERVAL),
-	minOnMs(minOnSecs * 1000), minOffMs(minOffSecs * 1000),
 	lastOn(0), lastOff(0),
 	last10s(0), last60s(0), last360s(0) {
 }
@@ -383,20 +382,10 @@ bool BenQProjector::isInitialized() {
 }
 
 void BenQProjector::turnOn() {
-	if ((millis() - lastOff) > minOffMs) {
-		logger.debug("Turning projector on...");
-		queueValue("pow", "on");
-	} else {
-		logger.info("Ignoring projector-on request, it hasn't been off long enough");
-	}
+	queueValue("pow", "on");
 }
 void BenQProjector::turnOff() {
-	if ((millis() - lastOn) > minOnMs) {
-		logger.debug("Turning projector off...");
-		queueValue("pow", "off");
-	} else {
-		logger.info("Ignoring projector-off request, it hasn't been on long enough");
-	}
+	queueValue("pow", "off");
 }
 bool BenQProjector::isOn() {
 	return state.isOn;

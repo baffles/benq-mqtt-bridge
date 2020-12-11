@@ -7,6 +7,7 @@
 
 #include "logger.hpp"
 #include "projector.hpp"
+#include "power_state.hpp"
 
 #include <functional>
 #include <string>
@@ -24,7 +25,7 @@ class HttpSupport {
 public:
 
 	HttpSupport(
-		Logger &logger, BenQProjector &projector,
+		Logger &logger, BenQProjector &projector, PowerState &projectorPower,
 		int httpPort,
 		bool enableOtaUpdates
 	);
@@ -38,6 +39,7 @@ private:
 
 	Logger &logger;
 	BenQProjector &projector;
+	PowerState &projectorPower;
 	ESP8266WebServer httpServer;
 	ESP8266HTTPUpdateServer updateServer;
 };

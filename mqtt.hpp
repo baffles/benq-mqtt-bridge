@@ -3,6 +3,7 @@
 
 #include "logger.hpp"
 #include "projector.hpp"
+#include "power_state.hpp"
 
 #include <EspMQTTClient.h>
 
@@ -13,7 +14,7 @@ class MqttSupport {
 public:
 
 	MqttSupport(
-		Logger &logger, BenQProjector &projector,
+		Logger &logger, BenQProjector &projector, PowerState &projectorPower,
 		int publishIntervalMs,
 		const char *clientName, const char *server, const short port, const char *username, const char *password,
 		const char *powerSetTopic, const char *volumeSetTopic, const char *sourceSetTopic, const char *lampModeSetTopic,
@@ -29,6 +30,7 @@ private:
 
 	Logger &logger;
 	BenQProjector &projector;
+	PowerState &projectorPower;
 	EspMQTTClient mqtt;
 
 	int publishInterval;

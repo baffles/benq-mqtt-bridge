@@ -33,7 +33,7 @@ public:
 	 * (with the correct baud rate, etc) and are ready for communicating with the projector when
 	 * begin() is called.
 	 **/
-	BenQProjector(Logger &logger, HardwareSerial &in, HardwareSerial &out, int pollIntervalSecs, int minOnSecs, int minOffSecs);
+	BenQProjector(Logger &logger, HardwareSerial &in, HardwareSerial &out, int pollIntervalSecs);
 
 	void begin();
 	void loop();
@@ -87,7 +87,6 @@ private:
 	int pollInterval;
 	long nextUpdate;
 	int maxQueueSizeForPoll;
-	int minOnMs, minOffMs;
 	long lastOn, lastOff;
 
 	// just for fun, keep stats of message throughput

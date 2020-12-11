@@ -8,14 +8,14 @@
 using std::bind;
 
 MqttSupport::MqttSupport(
-	Logger &logger, BenQProjector &projector,
+	Logger &logger, BenQProjector &projector, PowerState &projectorPower,
 	int publishIntervalMs,
 	const char *clientName, const char *server, const short port, const char *username, const char *password,
 	const char *powerSetTopic, const char *volumeSetTopic, const char *sourceSetTopic, const char *lampModeSetTopic,
 	const char *remoteTopic,
 	const char *rawSendTopic,
 	const char *statusTopic
-) : logger(logger), projector(projector),
+) : logger(logger), projector(projector), projectorPower(projectorPower),
 	publishInterval(publishIntervalMs),
 	mqtt(server, port, username, password, clientName),
 	powerSetTopic(powerSetTopic), volumeSetTopic(volumeSetTopic), sourceSetTopic(sourceSetTopic), lampModeSetTopic(lampModeSetTopic),
@@ -37,7 +37,7 @@ void MqttSupport::loop() {
 void MqttSupport::publishStatus() {
 	StaticJsonDocument<128> status;
 
-	status["power"] = projector.isOn();
+	status["power"] = projectorPower.getVirtualPowerState();
 	status["model"] = projector.getModelName();
 	
 	if (projector.isOn()) {
@@ -64,9 +64,9 @@ void MqttSupport::onConnectionEstablished() {
 		const char *val = payload.c_str();
 
 		if (strcasecmp(val, "on") == 0 || strcasecmp(val, "true") == 0) {
-			projector.turnOn();
+			projectorPower.requestPowerOn();
 		} else {
-			projector.turnOff();
+			projectorPower.requestPowerOff();
 		}
 	});
 

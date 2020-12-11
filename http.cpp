@@ -2,9 +2,9 @@
 #ifdef ENABLE_HTTP
 
 #include "http.hpp"
+#include "utils.hpp"
 #include "version.h"
 
-#include <iomanip>
 #include <sstream>
 
 #include <ArduinoJson.h>
@@ -12,10 +12,10 @@
 using namespace std;
 
 HttpSupport::HttpSupport(
-	Logger &logger, BenQProjector &projector,
+	Logger &logger, BenQProjector &projector, PowerState &projectorPower,
 	int httpPort,
 	bool enableOtaUpdates
-) : logger(logger), projector(projector),
+) : logger(logger), projector(projector), projectorPower(projectorPower),
 	httpServer(httpPort),
 	updateServer(true) {
 
@@ -24,23 +24,37 @@ HttpSupport::HttpSupport(
 	}
 }
 
+
+
 void HttpSupport::setup() {
 	httpServer.on("/", HTTP_GET, [this]() {
 		stringstream response;
 
+		auto formatTime = [](long toPrint) -> function<basic_ostream<char, char_traits<char>>&(basic_ostream<char, char_traits<char>>&)> {
+			return [toPrint](basic_ostream<char, char_traits<char>> &outStream) -> ostream& {
+				float val = (millis() - toPrint) / 1000;
+				const char *unit = "seconds";
+
+				if (val > 60) {
+					val /= 60;
+					unit = val > 1 ? "minutes" : "minute";
+				}
+
+				if (val > 90) {
+					val /= 60;
+					unit = val > 1 ? "hours" : "hour";
+				}
+
+				return outStream << fixed << setprecision(1) << val << " " << unit;
+			};
+		};
+
+		auto now = millis();
+
 		auto lastPowerEvent = projector.isOn() ? projector.getLastOnTime() : projector.getLastOffTime();
 		bool powerFromPreBoot = lastPowerEvent < CONTROLLER_BOOT_THRESHOLD;
-		float powerTime = (millis() - lastPowerEvent) / 1000;
-		const char *powerUnit = "seconds";
 
-		if (powerTime > 60) {
-			powerTime /= 60;
-			powerUnit = powerTime > 1 ? "minutes" : "minute";
-		}
-		if (powerTime > 90) {
-			powerTime /= 60;
-			powerUnit = powerTime > 1 ? "hours" : "hour";
-		}
+		auto powerTime = now - lastPowerEvent;
 
 		response
 			<< "<!DOCTYPE html>" << endl
@@ -48,7 +62,36 @@ void HttpSupport::setup() {
 			<< "	<head><title>BenQ Projector Bridge</title></head>" << endl
 			<< "	<body>" << endl
 			<< "		<h1>BenQ " << projector.getModelName() << "</h1>" << endl
-			<< "		<div>Power: <span style=\" color: " << (projector.isOn() ? "green" : "red") << ";\">" << projector.getStatusStr() << "</span> (for " << (powerFromPreBoot ? "at least " : "") << fixed << setprecision(1) << powerTime << " " << powerUnit << ")</div>" << endl
+			<< "		<div>Power: <span style=\"color: " << (projector.isOn() ? "green" : "red") << ";\">" << projector.getStatusStr() << "</span> (for " << (powerFromPreBoot ? "at least " : "") << formatMillis(powerTime) << "";
+
+		if (!projector.isOn()) {
+			// projector is off
+			auto canTurnOnAt = projectorPower.getAllowedOnTime();
+			if (canTurnOnAt > now) {
+				response << ", forced to stay off for another " << formatMillis(canTurnOnAt - now);
+			} else {
+				response << " <form method=\"post\" action=\"/cmd/cancel-on-limit\"><input type=\"submit\" value=\"turn on\"></form>";
+			}
+		} else {
+			// projector is physically on
+			auto pendingOffTime = projectorPower.getPendingRealOffTime();
+
+			if (pendingOffTime > now) {
+				// we have a pending off; let's figure out why
+				if (projectorPower.getVirtualPowerState()) {
+					// projector is meant to be on, so this is a time limit
+					response << ", will power off due to time limit in " << formatMillis(pendingOffTime - now) << " <form method=\"post\" action=\"/cmd/cancel-off-limit\"><input type=\"submit\" value=\"cancel\"></form>";
+				} else {
+					// we're pretending the projector is off, so this is a requested off time
+					response << ", requested power off will happen in " << formatMillis(pendingOffTime - now) << " <form method=\"post\" action=\"/cmd/power-on\"><input type=\"submit\" value=\"cancel\"></form>";
+				}
+			} else {
+				response << " <form method=\"post\" action=\"/cmd/cancel-on-limit\"><input type=\"submit\" value=\"turn off\"></form>";
+			}
+		}
+
+		response
+			<< ")</div>" << endl
 			<< "		<div>Lamp Hours: " << projector.getLampHours() << "</div>" << endl;
 		
 		if (projector.isOn()) {
@@ -129,6 +172,33 @@ void HttpSupport::setup() {
 		httpServer.send(303);
 	});
 
+	httpServer.on("/cmd/power-off", HTTP_POST, [this]() {
+		// request an off
+		projectorPower.requestPowerOff();
+
+		httpServer.sendHeader("Location", "/");
+		httpServer.sendHeader("Cache-Control", "no-cache");
+		httpServer.send(303);
+	});
+
+	httpServer.on("/cmd/power-on", HTTP_POST, [this]() {
+		// request an on
+		projectorPower.requestPowerOn();
+
+		httpServer.sendHeader("Location", "/");
+		httpServer.sendHeader("Cache-Control", "no-cache");
+		httpServer.send(303);
+	});
+
+	httpServer.on("/cmd/cancel-off-limit", HTTP_POST, [this]() {
+		// cancel the pending off-because-of-time-limit
+		projectorPower.cancelOffByLimit();
+
+		httpServer.sendHeader("Location", "/");
+		httpServer.sendHeader("Cache-Control", "no-cache");
+		httpServer.send(303);
+	});
+
 	httpServer.on("/about", HTTP_GET, [this]() {
 		stringstream about;
 		about << "BenQ Bridge version " << VERSION << "; copyright (C) 2020 Robert Ferris";
@@ -148,7 +218,8 @@ void HttpSupport::setup() {
 			<< "<html lang=\"en\">" << endl
 			<< "	<head><title>BenQ Projector Bridge</title></head>" << endl
 			<< "	<body>" << endl
-			<< "		<h1>Nerd Stats</h1>" << endl;
+			<< "		<h1>Nerd Stats</h1>" << endl
+			<< "		<div>Uptime: " << formatMillis(millis()) << "</div>" << endl;
 		
 		projector.getSendStats(total, count10s, count60s, count360s, rate10s, rate60s, rate360s);
 		response
